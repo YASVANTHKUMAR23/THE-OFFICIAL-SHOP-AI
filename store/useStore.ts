@@ -55,6 +55,8 @@ interface AppState {
   setActiveFeaturesTab: (tab: string) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  deleteChatSession: (id: string) => void;
+  renameChatSession: (id: string, newTitle: string) => void;
 }
 
 const MOCK_USER: User = {
@@ -63,19 +65,11 @@ const MOCK_USER: User = {
   plan: "Free"
 };
 
-const MOCK_HISTORY: ChatSession[] = [
-  { id: '1', title: "iPhone 15 vs 14 Pro Comparison", timestamp: "2 hours ago", messages: [] },
-  { id: '2', title: "Best Budget Laptops Under ₹50K", timestamp: "Yesterday", messages: [] },
-  { id: '3', title: "Sony WH-1000XM5 vs Bose QC45", timestamp: "3 days ago", messages: [] },
-  { id: '4', title: "Gaming Monitors 2024 Rankings", timestamp: "1 week ago", messages: [] },
-  { id: '5', title: "Noise-Cancelling Earbuds — Final Pick", timestamp: "2 weeks ago", messages: [] },
-];
-
 export const useStore = create<AppState>((set) => ({
   isLoggedIn: false,
   currentUser: null,
   activeChat: null,
-  chatHistory: MOCK_HISTORY,
+  chatHistory: [],
   agentStatus: {
     search: 'idle',
     comparison: 'idle',
@@ -91,6 +85,15 @@ export const useStore = create<AppState>((set) => ({
   updateChatSession: (id, messages) => set((state) => ({
     chatHistory: state.chatHistory.map(chat => 
       chat.id === id ? { ...chat, messages } : chat
+    )
+  })),
+  deleteChatSession: (id) => set((state) => ({
+    chatHistory: state.chatHistory.filter(chat => chat.id !== id),
+    activeChat: state.activeChat === id ? null : state.activeChat
+  })),
+  renameChatSession: (id, newTitle) => set((state) => ({
+    chatHistory: state.chatHistory.map(chat =>
+      chat.id === id ? { ...chat, title: newTitle } : chat
     )
   })),
   setAgentStatus: (agent, status) => set((state) => ({

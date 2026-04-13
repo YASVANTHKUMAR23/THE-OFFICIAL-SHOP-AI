@@ -25,9 +25,7 @@ export default function LandingPage() {
       {/* Navbar (Lynq style) */}
       <nav className="w-full px-6 py-4 flex items-center justify-between z-50 relative">
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-black rounded-sm flex items-center justify-center">
-            <div className="w-3 h-3 border-2 border-white rounded-sm" />
-          </div>
+          <img src="/logo.png" alt="Shop.AI Logo" className="h-8 w-auto object-contain" />
           <span className="font-display font-bold text-xl tracking-tight">Shop.AI</span>
         </Link>
 
@@ -559,7 +557,7 @@ export default function LandingPage() {
                   <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
                     <div className="flex justify-between items-start mb-3">
                       <div>
-                        <div className="text-sm font-bold text-gray-900">LG C3 65" OLED TV</div>
+                        <div className="text-sm font-bold text-gray-900">LG C3 65&quot; OLED TV</div>
                         <div className="text-xs text-gray-500">Target: Under $1,400</div>
                       </div>
                       <div className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Paperclip, CheckCircle2, Loader2, ShieldCheck, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { Send, Paperclip, CheckCircle2, Loader2, ShieldCheck, ChevronDown, ChevronUp, Search, Mic, ArrowRight } from 'lucide-react';
 import AnimatedText from '@/components/AnimatedText';
 import { useStore, ChatMessage } from '@/store/useStore';
 import { useRouter } from 'next/navigation';
@@ -14,6 +14,9 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [agentLogOpen, setAgentLogOpen] = useState(true);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('Model');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [agentState, setAgentState] = useState<{
     search: 'idle' | 'active' | 'complete',
     comparison: 'idle' | 'active' | 'complete',
@@ -109,13 +112,15 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-full relative bg-white">
       {/* Header */}
-      <header className="h-16 border-b border-gray-200 flex items-center justify-between px-6 shrink-0 bg-white/80 backdrop-blur-md z-10">
+      <header className="h-16 border-b border-gray-200 flex items-center justify-between px-6 shrink-0 bg-white/80 backdrop-blur-md z-10 relative">
         <h2 className="font-display font-medium text-lg ml-10 md:ml-0 text-gray-900">New Comparison</h2>
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isProcessing ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
-          <span className="text-xs font-bold tracking-widest text-gray-400 uppercase">
-            {isProcessing ? 'PIPELINE ACTIVE' : 'AGENTS IDLE'}
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isProcessing ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
+            <span className="text-xs font-bold tracking-widest text-gray-400 uppercase">
+              {isProcessing ? 'PIPELINE ACTIVE' : 'AGENTS IDLE'}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -178,9 +183,31 @@ export default function ChatPage() {
                   ))}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-gray-500 border-t border-gray-100 pt-4">
+                <div className="flex items-center gap-2 text-xs text-gray-500 border-t border-gray-100 pt-4 relative group cursor-pointer w-max">
                   <ShieldCheck className="w-4 h-4 text-green-500" />
                   <span>{msg.result?.sources} sources verified in real-time</span>
+                  
+                  {/* Hover Card */}
+                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 p-3">
+                    <div className="text-sm font-medium text-gray-900 mb-2">Verified Sources</div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600">Amazon</span>
+                        <span className="text-green-600 font-medium">Verified</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600">BestBuy</span>
+                        <span className="text-green-600 font-medium">Verified</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600">Walmart</span>
+                        <span className="text-green-600 font-medium">Verified</span>
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
+                      Data extracted and verified by A2UI Pipeline
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -270,7 +297,23 @@ export default function ChatPage() {
       <div className="p-6 bg-white border-t border-gray-200 shrink-0">
         <div className="max-w-4xl mx-auto relative group">
           <div className="relative flex items-center bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm focus-within:border-gray-400 focus-within:bg-white transition-colors">
-            <button className="p-4 text-gray-400 hover:text-gray-600 transition-colors">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              accept="image/*,.txt,.pdf,.doc,.docx"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  // Handle file upload logic here
+                  console.log("File selected:", e.target.files[0].name);
+                }
+              }}
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="p-4 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Upload image or text file"
+            >
               <Paperclip className="w-5 h-5" />
             </button>
             <input
@@ -282,12 +325,61 @@ export default function ChatPage() {
               className="flex-1 bg-transparent border-none focus:outline-none py-4 text-gray-900 placeholder:text-gray-400"
               disabled={isProcessing}
             />
-            <div className="px-4 flex items-center gap-3">
-              <span className="hidden sm:inline-block text-[10px] font-bold tracking-widest text-gray-400 border border-gray-200 px-2 py-1 rounded bg-white uppercase">⌘ ENTER</span>
+            <div className="px-4 flex items-center gap-2">
+              <button 
+                className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100"
+                title="Voice input"
+              >
+                <Mic className="w-5 h-5" />
+              </button>
+              
+              {/* Model Selector */}
+              <div className="relative hidden sm:block">
+                <button 
+                  onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                  className="flex items-center gap-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm"
+                >
+                  {selectedModel} <ChevronUp className="w-3 h-3" />
+                </button>
+                
+                <AnimatePresence>
+                  {isModelDropdownOpen && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="absolute right-0 bottom-full mb-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden"
+                    >
+                      <div className="bg-teal-50/50 p-3 border-b border-gray-100 flex items-center justify-between cursor-pointer hover:bg-teal-50 transition-colors">
+                        <span className="text-sm font-medium text-teal-800">Access the top AI models</span>
+                        <ArrowRight className="w-4 h-4 text-teal-800" />
+                      </div>
+                      <div className="p-2 space-y-1">
+                        {['Sonar', 'GPT-5.4', 'Gemini 3.1 Pro', 'Claude Sonnet 4.6', 'Claude Opus 4.6 Max', 'Nemotron 3 Super'].map((model) => (
+                          <button
+                            key={model}
+                            onClick={() => {
+                              setSelectedModel(model);
+                              setIsModelDropdownOpen(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition-colors flex items-center justify-between"
+                          >
+                            <span className="flex items-center gap-2">
+                              <div className="w-4 h-4 bg-gray-200 rounded-sm" /> {/* Placeholder icon */}
+                              {model}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
               <button 
                 onClick={handleSend}
                 disabled={!input.trim() || isProcessing}
-                className="p-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ml-1"
               >
                 <Send className="w-4 h-4" />
               </button>
