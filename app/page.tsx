@@ -24,9 +24,8 @@ export default function LandingPage() {
     <div className="min-h-screen bg-[#fdfbf7] flex flex-col overflow-x-hidden">
       {/* Navbar (Lynq style) */}
       <nav className="w-full px-6 py-4 flex items-center justify-between z-50 relative">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/" className="flex items-center">
           <img src="/logo.png" alt="Shop.AI Logo" className="h-8 w-auto object-contain" />
-          <span className="font-display font-bold text-xl tracking-tight">Shop.AI</span>
         </Link>
 
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
@@ -699,9 +698,9 @@ export default function LandingPage() {
                     <span className="text-gray-200">Unlimited History</span>
                   </div>
                 </div>
-                <button className="w-full bg-white hover:bg-gray-200 text-black py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto">
+                <Link href={`/checkout?plan=pro&billing=${isYearly ? 'yearly' : 'monthly'}`} className="w-full bg-white hover:bg-gray-200 text-black py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto flex items-center justify-center">
                   Start Free Trial
-                </button>
+                </Link>
               </div>
             </motion.div>
 
@@ -751,9 +750,9 @@ export default function LandingPage() {
                     <span className="text-gray-300">Unlimited Team Members</span>
                   </div>
                 </div>
-                <button className="w-full bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto">
+                <Link href={`/checkout?plan=team&billing=${isYearly ? 'yearly' : 'monthly'}`} className="w-full bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto flex items-center justify-center">
                   Select Plan
-                </button>
+                </Link>
               </div>
             </motion.div>
           </div>

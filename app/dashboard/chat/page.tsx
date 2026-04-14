@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 
 export default function ChatPage() {
   const router = useRouter();
-  const { addChatSession, updateChatSession, setActiveChat } = useStore();
+  const { addChatSession, updateChatSession, setActiveChat, activeChat } = useStore();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -24,6 +24,14 @@ export default function ChatPage() {
   }>({ search: 'idle', comparison: 'idle', decision: 'idle' });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeChat === null) {
+      setMessages([]);
+      setInput('');
+      setAgentState({ search: 'idle', comparison: 'idle', decision: 'idle' });
+    }
+  }, [activeChat]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -296,7 +304,7 @@ export default function ChatPage() {
       {/* Input Area */}
       <div className="p-6 bg-white border-t border-gray-200 shrink-0">
         <div className="max-w-4xl mx-auto relative group">
-          <div className="relative flex items-center bg-gray-50 border border-gray-200 rounded-xl overflow-hidden shadow-sm focus-within:border-gray-400 focus-within:bg-white transition-colors">
+          <div className="relative flex items-center bg-gray-50 border border-gray-200 rounded-xl shadow-sm focus-within:border-gray-400 focus-within:bg-white transition-colors">
             <input 
               type="file" 
               ref={fileInputRef} 

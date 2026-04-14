@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Plan = 'Free' | 'Pro' | 'Enterprise';
+export type Plan = 'Free' | 'Pro' | 'Team' | 'Enterprise';
 
 export interface User {
   name: string;

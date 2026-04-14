@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import { useStore } from '@/store/useStore';
 
-export default function SignIn() {
+function SignInContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const login = useStore((state) => state.login);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,7 +16,13 @@ export default function SignIn() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     login({ name: "David Brooks", email, plan: "Free" });
-    router.push('/dashboard/chat');
+    
+    const redirect = searchParams.get('redirect');
+    if (redirect) {
+      router.push(redirect);
+    } else {
+      router.push('/dashboard/chat');
+    }
   };
 
   return (
@@ -91,5 +98,13 @@ export default function SignIn() {
         New Shop.AI? <Link href="/auth/signup" className="text-gray-800 border-b border-gray-400 pb-0.5 hover:text-black transition-colors">Create Account</Link>
       </p>
     </motion.div>
+  );
+}
+
+export default function SignIn() {
+  return (
+    <Suspense fallback={<div className="flex justify-center p-8">Loading...</div>}>
+      <SignInContent />
+    </Suspense>
   );
 }

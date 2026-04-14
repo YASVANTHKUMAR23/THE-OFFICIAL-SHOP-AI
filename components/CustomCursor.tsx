@@ -41,7 +41,7 @@ export default function CustomCursor() {
       window.removeEventListener('mousemove', updateMousePosition);
       window.removeEventListener('mouseover', handleMouseOver);
     };
-  }, []);
+  }, [isVisible]);
 
   if (!isVisible) return null;
 

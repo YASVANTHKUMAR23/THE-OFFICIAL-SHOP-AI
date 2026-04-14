@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import { useStore } from '@/store/useStore';
 
-export default function SignUp() {
+function SignUpContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const login = useStore((state) => state.login);
   const [formData, setFormData] = useState({
     name: '',
@@ -18,7 +19,13 @@ export default function SignUp() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     login({ name: formData.name || "David Brooks", email: formData.email, plan: "Free" });
-    router.push('/dashboard/chat');
+    
+    const redirect = searchParams.get('redirect');
+    if (redirect) {
+      router.push(redirect);
+    } else {
+      router.push('/dashboard/chat');
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,5 +116,13 @@ export default function SignUp() {
         Already have an account? <Link href="/auth/signin" className="text-gray-800 border-b border-gray-400 pb-0.5 hover:text-black transition-colors">Sign In</Link>
       </p>
     </motion.div>
+  );
+}
+
+export default function SignUp() {
+  return (
+    <Suspense fallback={<div className="flex justify-center p-8">Loading...</div>}>
+      <SignUpContent />
+    </Suspense>
   );
 }
