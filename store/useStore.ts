@@ -57,13 +57,16 @@ interface AppState {
   setSidebarOpen: (open: boolean) => void;
   deleteChatSession: (id: string) => void;
   renameChatSession: (id: string, newTitle: string) => void;
+  syncAuth: (supabase: any) => Promise<void>;
 }
 
-const MOCK_USER: User = {
-  name: "Yasvanth",
-  email: "yasvanth@example.com",
-  plan: "Free"
-};
+const MOCK_HISTORY: ChatSession[] = [
+  { id: '1', title: "iPhone 15 vs 14 Pro Comparison", timestamp: "2 hours ago", messages: [] },
+  { id: '2', title: "Best Budget Laptops Under ₹50K", timestamp: "Yesterday", messages: [] },
+  { id: '3', title: "Sony WH-1000XM5 vs Bose QC45", timestamp: "3 days ago", messages: [] },
+  { id: '4', title: "Gaming Monitors 2024 Rankings", timestamp: "1 week ago", messages: [] },
+  { id: '5', title: "Noise-Cancelling Earbuds — Final Pick", timestamp: "2 weeks ago", messages: [] },
+];
 
 export const useStore = create<AppState>((set) => ({
   isLoggedIn: false,
@@ -105,4 +108,33 @@ export const useStore = create<AppState>((set) => ({
   setActiveFeaturesTab: (tab) => set({ activeFeaturesTab: tab }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+
+  syncAuth: async (supabase: any) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session?.user) {
+      // Fetch profile data
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      // Map Enterprise back to Team locally
+      let dbPlan = (profile?.plan as Plan) || "Free";
+      if (dbPlan === ("Enterprise" as any)) dbPlan = "Team";
+
+      set({
+        isLoggedIn: true,
+        currentUser: {
+          name: profile?.full_name || session.user.user_metadata?.full_name || "User",
+          email: session.user.email!,
+          plan: dbPlan,
+          avatar: profile?.avatar_url
+        }
+      });
+    } else {
+      set({ isLoggedIn: false, currentUser: null });
+    }
+  }
 }));

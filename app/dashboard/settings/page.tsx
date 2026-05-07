@@ -131,18 +131,54 @@ export default function SettingsPage() {
                     </div>
                     
                     <div className="pt-4 border-t border-gray-200 flex gap-4">
-                      {currentUser?.plan !== 'Pro' && (
-                        <Link href="/checkout?plan=pro&billing=monthly" className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors">
-                          Upgrade to Pro
-                        </Link>
+                      {currentUser?.plan === 'Free' && (
+                        <>
+                          <Link href="/checkout?plan=pro&billing=monthly" className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors">
+                            Upgrade to Pro
+                          </Link>
+                          <Link href="/checkout?plan=team&billing=monthly" className="bg-white border border-gray-200 text-gray-900 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                            Upgrade to Team
+                          </Link>
+                        </>
                       )}
-                      {currentUser?.plan !== 'Team' && (
-                        <Link href="/checkout?plan=team&billing=monthly" className="bg-white border border-gray-200 text-gray-900 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                      {currentUser?.plan === 'Pro' && (
+                        <Link href="/checkout?plan=team&billing=monthly" className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors">
                           Upgrade to Team
                         </Link>
                       )}
+                      {currentUser?.plan === 'Team' && (
+                        <span className="text-sm text-gray-500">Contact support to modify or downgrade your team settings.</span>
+                      )}
                     </div>
                   </div>
+
+                  {currentUser?.plan === 'Team' && (
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900 mb-4">Current Usage</h3>
+                      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-gray-600">Active Team Members</span>
+                          <span className="font-medium text-gray-900">4 / 10 limit</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2 mb-6">
+                          <div className="bg-blue-600 h-2 rounded-full" style={{ width: '40%' }}></div>
+                        </div>
+                        
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-gray-600">AI Search Queries</span>
+                          <span className="font-medium text-gray-900">842 / 5,000 limit</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2 mb-6">
+                          <div className="bg-purple-600 h-2 rounded-full" style={{ width: '16.8%' }}></div>
+                        </div>
+                        
+                        <div className="pt-4 border-t border-gray-100 flex justify-between items-center">
+                          <span className="text-sm text-gray-500">Next billing date: <strong className="text-gray-900">Nov 1, 2026</strong></span>
+                          <span className="text-sm font-medium text-gray-900">Est. Bill: $48.00</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { CreditCard, ShieldCheck, CheckCircle2, ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useStore } from '@/store/useStore';
+import { updateUserPlan } from '@/app/auth/actions';
 
 const MOCK_CARDS = [
   { id: 'visa', name: 'Visa', number: '4242 4242 4242 4242', cvc: '123', exp: '12/25', icon: '💳', color: 'bg-blue-600' },
@@ -66,9 +67,14 @@ function CheckoutContent() {
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Update user plan
+    const planName = planId === 'team' ? 'Team' : 'Pro';
+    
+    // Update plan in DB
+    await updateUserPlan(planName);
+    
+    // Update local state
     if (currentUser) {
-      login({ ...currentUser, plan: planId === 'team' ? 'Team' : 'Pro' });
+      login({ ...currentUser, plan: planName as any });
     }
 
     // Redirect to success page

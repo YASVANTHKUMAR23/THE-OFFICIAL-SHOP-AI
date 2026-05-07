@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { ChevronDown, Search, ShieldCheck, Zap, BarChart3, Cpu, Check, ArrowRight, Play, ArrowDown, MousePointer2 } from 'lucide-react';
+import { useStore } from '@/store/useStore';
 import AnimatedCounter from '@/components/AnimatedCounter';
 import { GlowingEffect } from '@/components/ui/glowing-effect';
 
@@ -78,7 +79,7 @@ export default function LandingPage() {
             </div>
           </div>
           
-          <Link href="/auth/signup" className="bg-black text-white px-8 py-4 rounded-full font-medium text-lg hover:bg-gray-800 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-black/20 active:scale-95">
+          <Link href={`/auth/signup?redirect=${encodeURIComponent('/checkout?plan=pro&billing=monthly')}`} className="bg-black text-white px-8 py-4 rounded-full font-medium text-lg hover:bg-gray-800 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-black/20 active:scale-95">
             Start Your 7-Day Free Trial ($19)
           </Link>
         </motion.div>
@@ -698,7 +699,7 @@ export default function LandingPage() {
                     <span className="text-gray-200">Unlimited History</span>
                   </div>
                 </div>
-                <Link href={`/checkout?plan=pro&billing=${isYearly ? 'yearly' : 'monthly'}`} className="w-full bg-white hover:bg-gray-200 text-black py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto flex items-center justify-center">
+                <Link href={`/auth/signup?redirect=${encodeURIComponent(`/checkout?plan=pro&billing=${isYearly ? 'yearly' : 'monthly'}`)}`} className="w-full bg-white hover:bg-gray-200 text-black py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto flex items-center justify-center">
                   Start Free Trial
                 </Link>
               </div>
@@ -750,7 +751,7 @@ export default function LandingPage() {
                     <span className="text-gray-300">Unlimited Team Members</span>
                   </div>
                 </div>
-                <Link href={`/checkout?plan=team&billing=${isYearly ? 'yearly' : 'monthly'}`} className="w-full bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto flex items-center justify-center">
+                <Link href={`/auth/signup?redirect=${encodeURIComponent(`/checkout?plan=team&billing=${isYearly ? 'yearly' : 'monthly'}`)}`} className="w-full bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white py-3 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 mt-auto flex items-center justify-center">
                   Select Plan
                 </Link>
               </div>

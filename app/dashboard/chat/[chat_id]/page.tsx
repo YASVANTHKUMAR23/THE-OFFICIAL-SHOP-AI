@@ -4,8 +4,10 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, Paperclip, CheckCircle2, Loader2, ShieldCheck, ChevronDown, ChevronUp, Search, Mic, ArrowRight } from 'lucide-react';
 import AnimatedText from '@/components/AnimatedText';
+import MarkdownMessage from '@/components/MarkdownMessage';
 import { useStore, ChatMessage } from '@/store/useStore';
 import { useParams, useRouter } from 'next/navigation';
+import { queryChatbot } from '@/lib/chatbot';
 
 export default function ChatHistoryPage() {
   const params = useParams();
@@ -60,24 +62,15 @@ export default function ChatHistoryPage() {
     setAgentState({ search: 'active', comparison: 'idle', decision: 'idle' });
     
     try {
-      // Start API call
-      const responsePromise = fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: input })
+      // Call Flowise chatbot with session memory
+      const data = await queryChatbot({
+        question: input,
+        chatId: chatId,
+        overrideConfig: {
+          sessionId: chatId
+        }
       });
 
-      // Pipeline animations
-      await new Promise(r => setTimeout(r, 1500));
-      setAgentState({ search: 'complete', comparison: 'active', decision: 'idle' });
-      
-      await new Promise(r => setTimeout(r, 1500));
-      setAgentState({ search: 'complete', comparison: 'complete', decision: 'active' });
-
-      const response = await responsePromise;
-      const data = await response.json();
-
-      await new Promise(r => setTimeout(r, 1000));
       setAgentState({ search: 'complete', comparison: 'complete', decision: 'complete' });
       setIsProcessing(false);
       
@@ -88,8 +81,8 @@ export default function ChatHistoryPage() {
       const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: '',
-        result: data
+        content: data.text || data.response || (typeof data === 'string' ? data : JSON.stringify(data)),
+        result: data.result || null
       };
 
       const finalMessages = [...newMessages, aiMessage];
@@ -148,66 +141,50 @@ export default function ChatHistoryPage() {
               </div>
             ) : (
               <div className="bg-white border border-gray-200 p-6 rounded-2xl rounded-tl-sm w-full max-w-3xl shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold bg-blue-100 text-blue-700 px-3 py-1 rounded-full tracking-wider uppercase">
-                      ★ TOP PICK
-                    </span>
-                    <h3 className="text-2xl font-display font-medium text-gray-900">{msg.result?.topPick}</h3>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-display font-medium text-blue-600">{msg.result?.confidence}%</div>
-                    <div className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">CONFIDENCE</div>
-                  </div>
-                </div>
-
-                <p className="text-gray-600 leading-relaxed mb-8">
-                  {msg.result?.reasoning}
-                </p>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  {msg.result?.metrics?.map((m: any, i: number) => (
-                    <div key={i} className="bg-gray-50 border border-gray-100 rounded-lg p-3">
-                      <div className="text-xs text-gray-500 mb-2">{m.label || m.name}</div>
-                      <div className="flex items-end gap-2">
-                        <div className="text-lg font-display font-medium text-gray-900">{m.value || m.score}</div>
-                        {m.score && <div className="text-xs text-gray-400 mb-1">/100</div>}
+                {msg.content ? (
+                  <MarkdownMessage content={msg.content} />
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold bg-blue-100 text-blue-700 px-3 py-1 rounded-full tracking-wider uppercase">
+                          ★ TOP PICK
+                        </span>
+                        <h3 className="text-2xl font-display font-medium text-gray-900">{msg.result?.topPick}</h3>
                       </div>
-                      {m.score && (
-                        <div className="w-full h-1 bg-gray-200 mt-2 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-500" style={{ width: `${m.score}%` }} />
+                      <div className="text-right">
+                        <div className="text-2xl font-display font-medium text-blue-600">{msg.result?.confidence}%</div>
+                        <div className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">CONFIDENCE</div>
+                      </div>
+                    </div>
+
+                    <p className="text-gray-600 leading-relaxed mb-8">
+                      {msg.result?.reasoning}
+                    </p>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      {msg.result?.metrics?.map((m: any, i: number) => (
+                        <div key={i} className="bg-gray-50 border border-gray-100 rounded-lg p-3">
+                          <div className="text-xs text-gray-500 mb-2">{m.label || m.name}</div>
+                          <div className="flex items-end gap-2">
+                            <div className="text-lg font-display font-medium text-gray-900">{m.value || m.score}</div>
+                            {m.score && <div className="text-xs text-gray-400 mb-1">/100</div>}
+                          </div>
+                          {m.score && (
+                            <div className="w-full h-1 bg-gray-200 mt-2 rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-500" style={{ width: `${m.score}%` }} />
+                            </div>
+                          )}
                         </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                <div className="flex items-center gap-2 text-xs text-gray-500 border-t border-gray-100 pt-4 relative group cursor-pointer w-max">
-                  <ShieldCheck className="w-4 h-4 text-green-500" />
-                  <span>{msg.result?.sources} sources verified in real-time</span>
-                  
-                  {/* Hover Card */}
-                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 p-3">
-                    <div className="text-sm font-medium text-gray-900 mb-2">Verified Sources</div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600">Amazon</span>
-                        <span className="text-green-600 font-medium">Verified</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600">BestBuy</span>
-                        <span className="text-green-600 font-medium">Verified</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600">Walmart</span>
-                        <span className="text-green-600 font-medium">Verified</span>
-                      </div>
+                    <div className="flex items-center gap-2 text-xs text-gray-500 border-t border-gray-100 pt-4 relative group cursor-pointer w-max">
+                      <ShieldCheck className="w-4 h-4 text-green-500" />
+                      <span>{msg.result?.sources} sources verified in real-time</span>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
-                      Data extracted and verified by A2UI Pipeline
-                    </div>
-                  </div>
-                </div>
+                  </>
+                )}
               </div>
             )}
           </motion.div>

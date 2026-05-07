@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
+import { SupabaseProvider } from '@/components/SupabaseProvider';
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -19,7 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Bungee&family=Dancing+Script&family=Smooch+Sans:wght@100..900&display=swap" rel="stylesheet" />
       </head>
       <body className="font-body antialiased min-h-screen flex flex-col" suppressHydrationWarning>
-        {children}
+        <SupabaseProvider>
+          {children}
+        </SupabaseProvider>
       </body>
     </html>
   );

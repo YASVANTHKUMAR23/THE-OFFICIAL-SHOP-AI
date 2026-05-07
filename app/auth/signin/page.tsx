@@ -2,26 +2,53 @@
 
 import { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
-import { useStore } from '@/store/useStore';
+import { login } from '../actions';
+import { createClient } from '@/lib/supabase/client';
 
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const login = useStore((state) => state.login);
+  const redirectParam = searchParams.get('redirect');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleGoogleSignIn = async () => {
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${redirectParam || '/dashboard'}`,
+      },
+    });
+
+    if (error) {
+      setError(error.message);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    login({ name: "David Brooks", email, plan: "Free" });
-    
-    const redirect = searchParams.get('redirect');
-    if (redirect) {
-      router.push(redirect);
-    } else {
-      router.push('/dashboard/chat');
+    setError(null);
+    setLoading(true);
+
+    const formData = new FormData();
+    formData.append('email', email);
+    formData.append('password', password);
+    if (redirectParam) {
+      formData.append('redirectTo', redirectParam);
+    }
+
+    const result = await login(formData);
+
+    if (result?.error) {
+      setError(result.error);
+      setLoading(false);
+    } else if (result?.success) {
+      router.push(result.redirectTo || '/dashboard');
     }
   };
 
@@ -34,16 +61,23 @@ function SignInContent() {
     >
       <h1 className="text-2xl font-medium text-gray-500 mb-12 text-center">Welcome to Shop.AI</h1>
 
+      {error && (
+        <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg border border-red-100 mb-6">
+          {error}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-8">
         <div className="relative">
-          <label className="text-xs text-gray-400 mb-1 block">Users name or Email</label>
+          <label className="text-xs text-gray-400 mb-1 block">Email Address</label>
           <input
-            type="text"
+            type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="David Brooks"
+            placeholder="david@example.com"
             className="w-full bg-transparent border-b border-gray-200 py-2 text-gray-800 focus:outline-none focus:border-gray-500 transition-colors placeholder:text-gray-800"
             required
+            disabled={loading}
           />
         </div>
 
@@ -56,19 +90,21 @@ function SignInContent() {
             placeholder="••••••••"
             className="w-full bg-transparent border-b border-gray-200 py-2 text-gray-800 focus:outline-none focus:border-gray-500 transition-colors placeholder:text-gray-800 tracking-widest"
             required
+            disabled={loading}
           />
         </div>
 
         <div className="flex justify-end">
-          <Link href="#" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">Forgot password?</Link>
+          <Link href="/auth/forgot-password" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">Forgot password?</Link>
         </div>
 
         <div className="flex justify-center mt-8">
           <button 
             type="submit"
-            className="bg-[#6b6b6b] text-white font-medium py-3 px-12 rounded-full hover:bg-gray-700 transition-all"
+            disabled={loading}
+            className="bg-[#6b6b6b] text-white font-medium py-3 px-12 rounded-full hover:bg-gray-700 transition-all disabled:opacity-50"
           >
-            Sign in
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </div>
       </form>
@@ -83,7 +119,10 @@ function SignInContent() {
       </div>
 
       <div className="flex justify-center mt-8">
-        <button className="text-sm text-gray-600 font-medium py-2 px-4 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-3">
+        <button 
+          onClick={handleGoogleSignIn}
+          className="text-sm text-gray-600 font-medium py-2 px-4 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-3"
+        >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
@@ -95,7 +134,7 @@ function SignInContent() {
       </div>
 
       <p className="mt-12 text-center text-xs text-gray-500">
-        New Shop.AI? <Link href="/auth/signup" className="text-gray-800 border-b border-gray-400 pb-0.5 hover:text-black transition-colors">Create Account</Link>
+        New Shop.AI? <Link href={`/auth/signup${redirectParam ? `?redirect=${encodeURIComponent(redirectParam)}` : ''}`} className="text-gray-800 border-b border-gray-400 pb-0.5 hover:text-black transition-colors">Create Account</Link>
       </p>
     </motion.div>
   );
@@ -103,7 +142,7 @@ function SignInContent() {
 
 export default function SignIn() {
   return (
-    <Suspense fallback={<div className="flex justify-center p-8">Loading...</div>}>
+    <Suspense fallback={<div className="flex justify-center p-8 text-gray-500">Loading...</div>}>
       <SignInContent />
     </Suspense>
   );

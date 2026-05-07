@@ -1,0 +1,1531 @@
+{
+    "name": "AI Shopping Assistant — 2-Phase Workflow",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "shopping-assistant",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "node_webhook",
+            "name": "Webhook Entry",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                0,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT session_id, phase, product_name, product_list, history FROM sessions WHERE session_id = '{{ $json.body.session_id }}' LIMIT 1",
+                "options": {}
+            },
+            "id": "node_load_session",
+            "name": "Load Session (Supabase)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                240,
+                300
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "supabase_postgres_cred",
+                    "name": "Supabase Postgres"
+                }
+            },
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Merge incoming message with loaded session\nconst body = $('Webhook Entry').first().json.body;\nconst sessionRows = $input.all();\n\nlet session = {};\nif (sessionRows.length > 0 && sessionRows[0].json && sessionRows[0].json.session_id) {\n  session = sessionRows[0].json;\n} else {\n  session = {\n    session_id: body.session_id,\n    phase: 1,\n    product_name: null,\n    product_list: [],\n    history: []\n  };\n}\n\n// Normalise types\nsession.phase = parseInt(session.phase) || 1;\nsession.product_list = Array.isArray(session.product_list) ? session.product_list\n  : (typeof session.product_list === 'string' ? JSON.parse(session.product_list || '[]') : []);\nsession.history = Array.isArray(session.history) ? session.history\n  : (typeof session.history === 'string' ? JSON.parse(session.history || '[]') : []);\n\nreturn [{\n  json: {\n    message: body.message,\n    session_id: body.session_id,\n    session\n  }\n}];"
+            },
+            "id": "node_merge_session",
+            "name": "Merge Session State",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                480,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "You are a shopping assistant. Analyze the user message and current session state. Return ONLY a valid JSON object with no extra text, no markdown fences, no explanation:\n\n{\n  \"intent_type\": \"vague_query\" | \"direct_product\" | \"approval\" | \"rejection\" | \"selection\" | \"other\",\n  \"product_name\": \"<extracted product name or null>\",\n  \"query_string\": \"<flipkart search string if vague_query>\",\n  \"budget_inr\": <integer or null>,\n  \"response_to_user\": \"<what the agent should say to the user>\"\n}\n\nRules:\n- If user gives a budget or category without a specific model name: intent_type = vague_query\n- If user gives a specific product model name (e.g. Samsung Galaxy S24): intent_type = direct_product\n- If user says yes / sure / go ahead / okay / proceed / do it: intent_type = approval\n- If user says no / cancel / stop / don't: intent_type = rejection\n- If user picks a number or product from a list (e.g. \"option 3\", \"the second one\"): intent_type = selection\n- Otherwise: intent_type = other"
+                        },
+                        {
+                            "role": "user",
+                            "content": "User message: {{ $json.message }}\n\nCurrent session state:\n- phase: {{ $json.session.phase }}\n- product_name: {{ $json.session.product_name }}\n- product_list: {{ JSON.stringify($json.session.product_list) }}\n- recent history (last 3 turns): {{ JSON.stringify($json.session.history.slice(-3)) }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 500,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_claude_intent",
+            "name": "Claude Intent Classifier",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                720,
+                300
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            },
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse Claude's intent response safely\nconst raw = $input.first().json.text || $input.first().json.content || '';\nconst message = $('Merge Session State').first().json.message;\nconst session = $('Merge Session State').first().json.session;\nconst session_id = $('Merge Session State').first().json.session_id;\n\nlet intent = {};\ntry {\n  const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();\n  intent = JSON.parse(cleaned);\n} catch (e) {\n  intent = {\n    intent_type: 'other',\n    product_name: null,\n    query_string: null,\n    budget_inr: null,\n    response_to_user: 'I had a moment of confusion. Could you tell me what product you are looking for?'\n  };\n}\n\n// Ensure intent_type is valid\nconst valid = ['vague_query','direct_product','approval','rejection','selection','other'];\nif (!valid.includes(intent.intent_type)) {\n  intent.intent_type = 'other';\n}\n\nreturn [{\n  json: {\n    intent,\n    message,\n    session_id,\n    session\n  }\n}];"
+            },
+            "id": "node_parse_intent",
+            "name": "Parse Intent JSON",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                960,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent.intent_type }}",
+                                        "rightValue": "vague_query",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "vague_query"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent.intent_type }}",
+                                        "rightValue": "selection",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "selection"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent.intent_type }}",
+                                        "rightValue": "direct_product",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "direct_product"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent.intent_type }}",
+                                        "rightValue": "approval",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "approval"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "combinator": "and",
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $json.intent.intent_type }}",
+                                        "rightValue": "rejection",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "rejection"
+                        }
+                    ]
+                },
+                "options": {
+                    "fallbackOutput": "extra"
+                }
+            },
+            "id": "node_router",
+            "name": "Intent Router",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3.2,
+            "position": [
+                1200,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://www.flipkart.com/search?q={{ encodeURIComponent($json.intent.query_string) }}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "User-Agent",
+                            "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        },
+                        {
+                            "name": "Accept",
+                            "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                        },
+                        {
+                            "name": "Accept-Language",
+                            "value": "en-IN,en;q=0.5"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 10000,
+                    "response": {
+                        "response": {
+                            "responseFormat": "text"
+                        }
+                    }
+                }
+            },
+            "id": "node_a1_flipkart_http",
+            "name": "A1 — Flipkart HTTP Request",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1500,
+                0
+            ],
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "operation": "extractHtmlContent",
+                "sourceData": "json",
+                "dataPropertyName": "data",
+                "extractionValues": {
+                    "values": [
+                        {
+                            "key": "products_primary",
+                            "cssSelector": "._4rR01T",
+                            "returnValue": "text",
+                            "returnArray": true
+                        },
+                        {
+                            "key": "products_fallback",
+                            "cssSelector": ".s1Q9rs",
+                            "returnValue": "text",
+                            "returnArray": true
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "node_a2_html_extract",
+            "name": "A2 — Extract Product Names",
+            "type": "n8n-nodes-base.htmlExtract",
+            "typeVersion": 1,
+            "position": [
+                1740,
+                0
+            ],
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Merge primary and fallback selectors, deduplicate, cap at 8\nconst data = $input.first().json;\nconst primary = Array.isArray(data.products_primary) ? data.products_primary : [];\nconst fallback = Array.isArray(data.products_fallback) ? data.products_fallback : [];\n\nconst combined = [...new Set([...primary, ...fallback])]\n  .map(p => p.trim())\n  .filter(p => p.length > 3)\n  .slice(0, 8);\n\nconst session = $('Parse Intent JSON').first().json.session;\nconst session_id = $('Parse Intent JSON').first().json.session_id;\nconst intent = $('Parse Intent JSON').first().json.intent;\n\nif (combined.length === 0) {\n  return [{\n    json: {\n      error: 'empty_results',\n      reply: \"I couldn't find results for that. Try a slightly different product name?\",\n      session_id,\n      session\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    product_list: combined,\n    session_id,\n    session,\n    intent\n  }\n}];"
+            },
+            "id": "node_a2b_merge_products",
+            "name": "A2b — Merge & Deduplicate Products",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1980,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "You are a friendly shopping assistant. Format a product list as a clean numbered list and ask which one interests the user. Keep it short, warm, and conversational — no marketing fluff. Return only the message string, no JSON, no markdown headers."
+                        },
+                        {
+                            "role": "user",
+                            "content": "Products found:\n{{ $json.product_list.map((p, i) => `${i+1}. ${p}`).join('\\n') }}\n\nFormat this as a conversational list and ask which one they want to explore."
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 400,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_a3_format_claude",
+            "name": "A3 — Claude Format Product List",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                2220,
+                0
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const reply = $input.first().json.text || $input.first().json.content || '';\nconst ctx = $('A2b — Merge & Deduplicate Products').first().json;\nconst session = { ...ctx.session };\n\nsession.phase = 1;\nsession.product_list = ctx.product_list;\nsession.history = Array.isArray(session.history) ? session.history : [];\nsession.history.push({ role: 'user', content: ctx.intent.query_string || ctx.intent.product_name });\nsession.history.push({ role: 'assistant', content: reply });\n\nreturn [{\n  json: {\n    session_id: ctx.session_id,\n    session,\n    reply\n  }\n}];"
+            },
+            "id": "node_a4_session_update",
+            "name": "A4 — Session Update (Branch A)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2460,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "INSERT INTO sessions (session_id, phase, product_name, product_list, history, updated_at)\nVALUES (\n  '{{ $json.session_id }}',\n  {{ $json.session.phase }},\n  {{ $json.session.product_name ? `'${$json.session.product_name.replace(/'/g, \"''\")}'` : 'NULL' }},\n  '{{ JSON.stringify($json.session.product_list) }}'::jsonb,\n  '{{ JSON.stringify($json.session.history) }}'::jsonb,\n  NOW()\n)\nON CONFLICT (session_id) DO UPDATE SET\n  phase = EXCLUDED.phase,\n  product_name = EXCLUDED.product_name,\n  product_list = EXCLUDED.product_list,\n  history = EXCLUDED.history,\n  updated_at = NOW()",
+                "options": {}
+            },
+            "id": "node_a4_db_save",
+            "name": "A4 — DB Save (Branch A)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                2700,
+                0
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "supabase_postgres_cred",
+                    "name": "Supabase Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $('A4 — Session Update (Branch A)').first().json.reply }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_a5_respond",
+            "name": "A5 — Respond (Branch A)",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                2940,
+                0
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "The user has selected a product from a list. Identify which product they picked — they might say a number (\"option 3\", \"the third one\") or a partial name. Return ONLY a valid JSON object, no extra text:\n{\n  \"selected_product\": \"<exact product name from list or best match>\"\n}"
+                        },
+                        {
+                            "role": "user",
+                            "content": "User said: {{ $json.message }}\n\nProduct list they were shown:\n{{ $json.session.product_list.map((p, i) => `${i+1}. ${p}`).join('\\n') }}\n\nWhich product did they select?"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 200,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_b1_selection_claude",
+            "name": "B1 — Claude Extract Selection",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                1500,
+                200
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const raw = $input.first().json.text || $input.first().json.content || '';\nconst session_id = $('Parse Intent JSON').first().json.session_id;\nconst session = $('Parse Intent JSON').first().json.session;\n\nlet selected_product = null;\ntry {\n  const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  selected_product = parsed.selected_product;\n} catch(e) {\n  selected_product = session.product_list[0] || null;\n}\n\nreturn [{\n  json: { selected_product, session_id, session }\n}];"
+            },
+            "id": "node_b1b_parse_selection",
+            "name": "B1b — Parse Selection",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1740,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "The user selected a product. Ask a natural, conversational confirmation before building the comparison table. Example style: \"Got it! Should I go ahead and build a price comparison table for the [product]?\" Be brief. Return only the message string, no JSON."
+                        },
+                        {
+                            "role": "user",
+                            "content": "Selected product: {{ $json.selected_product }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 150,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_b2_confirm_claude",
+            "name": "B2 — Claude Confirm (Branch B)",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                1980,
+                200
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const reply = $input.first().json.text || $input.first().json.content || '';\nconst ctx = $('B1b — Parse Selection').first().json;\nconst session = { ...ctx.session };\n\nsession.phase = 2;\nsession.product_name = ctx.selected_product;\nsession.history = Array.isArray(session.history) ? session.history : [];\nsession.history.push({ role: 'user', content: `Selected: ${ctx.selected_product}` });\nsession.history.push({ role: 'assistant', content: reply });\n\nreturn [{\n  json: { session_id: ctx.session_id, session, reply }\n}];"
+            },
+            "id": "node_b3_session_update",
+            "name": "B3 — Session Update (Branch B)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2220,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "INSERT INTO sessions (session_id, phase, product_name, product_list, history, updated_at)\nVALUES (\n  '{{ $json.session_id }}',\n  {{ $json.session.phase }},\n  '{{ $json.session.product_name.replace(/'/g, \"''\") }}',\n  '{{ JSON.stringify($json.session.product_list) }}'::jsonb,\n  '{{ JSON.stringify($json.session.history) }}'::jsonb,\n  NOW()\n)\nON CONFLICT (session_id) DO UPDATE SET\n  phase = EXCLUDED.phase,\n  product_name = EXCLUDED.product_name,\n  product_list = EXCLUDED.product_list,\n  history = EXCLUDED.history,\n  updated_at = NOW()",
+                "options": {}
+            },
+            "id": "node_b3_db_save",
+            "name": "B3 — DB Save (Branch B)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                2460,
+                200
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "supabase_postgres_cred",
+                    "name": "Supabase Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $('B3 — Session Update (Branch B)').first().json.reply }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_b4_respond",
+            "name": "B4 — Respond (Branch B)",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                2700,
+                200
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "The user provided a direct product name. Ask briefly and naturally if you should build a price comparison table for it. Keep it to one sentence. Return only the message string, no JSON."
+                        },
+                        {
+                            "role": "user",
+                            "content": "Product name: {{ $json.intent.product_name }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 150,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_c1_confirm_claude",
+            "name": "C1 — Claude Confirm (Branch C)",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                1500,
+                400
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const reply = $input.first().json.text || $input.first().json.content || '';\nconst ctx = $('Parse Intent JSON').first().json;\nconst session = { ...ctx.session };\n\nsession.phase = 2;\nsession.product_name = ctx.intent.product_name;\nsession.history = Array.isArray(session.history) ? session.history : [];\nsession.history.push({ role: 'user', content: ctx.message });\nsession.history.push({ role: 'assistant', content: reply });\n\nreturn [{\n  json: { session_id: ctx.session_id, session, reply }\n}];"
+            },
+            "id": "node_c2_session_update",
+            "name": "C2 — Session Update (Branch C)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1740,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "INSERT INTO sessions (session_id, phase, product_name, product_list, history, updated_at)\nVALUES (\n  '{{ $json.session_id }}',\n  {{ $json.session.phase }},\n  '{{ $json.session.product_name.replace(/'/g, \"''\") }}',\n  '{{ JSON.stringify($json.session.product_list) }}'::jsonb,\n  '{{ JSON.stringify($json.session.history) }}'::jsonb,\n  NOW()\n)\nON CONFLICT (session_id) DO UPDATE SET\n  phase = EXCLUDED.phase,\n  product_name = EXCLUDED.product_name,\n  product_list = EXCLUDED.product_list,\n  history = EXCLUDED.history,\n  updated_at = NOW()",
+                "options": {}
+            },
+            "id": "node_c2_db_save",
+            "name": "C2 — DB Save (Branch C)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                1980,
+                400
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "supabase_postgres_cred",
+                    "name": "Supabase Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $('C2 — Session Update (Branch C)').first().json.reply }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_c3_respond",
+            "name": "C3 — Respond (Branch C)",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                2220,
+                400
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "// D1 Guard: only proceed if phase=2 and product_name is set\nconst ctx = $('Parse Intent JSON').first().json;\nconst session = ctx.session;\n\nif (session.phase !== 2 || !session.product_name) {\n  return [{\n    json: {\n      guard_failed: true,\n      reply: \"Hmm, I'm not sure which product you want me to compare. Could you tell me the product name or pick one from the list?\",\n      session_id: ctx.session_id,\n      session\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    guard_failed: false,\n    product_name: session.product_name,\n    session_id: ctx.session_id,\n    session\n  }\n}];"
+            },
+            "id": "node_d1_guard",
+            "name": "D1 — Guard Check",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1500,
+                600
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "combinator": "and",
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.guard_failed }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "node_d1b_guard_if",
+            "name": "D1b — Guard Failed?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                1740,
+                600
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "UPDATE sessions SET history = history || '[{\"role\":\"assistant\",\"content\":\"{{ $json.reply.replace(/'/g, \"''\") }}\"}]'::jsonb, updated_at = NOW() WHERE session_id = '{{ $json.session_id }}'",
+                "options": {}
+            },
+            "id": "node_d1c_guard_db",
+            "name": "D1c — Save Guard Reply",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                1980,
+                500
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "supabase_postgres_cred",
+                    "name": "Supabase Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $('D1 — Guard Check').first().json.reply }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_d1d_guard_respond",
+            "name": "D1d — Guard Respond",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                2220,
+                500
+            ]
+        },
+        {
+            "parameters": {
+                "url": "=https://buyhatke.com/search?q={{ encodeURIComponent($json.product_name) }}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "User-Agent",
+                            "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        },
+                        {
+                            "name": "Accept",
+                            "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                        },
+                        {
+                            "name": "Accept-Language",
+                            "value": "en-IN,en;q=0.5"
+                        }
+                    ]
+                },
+                "options": {
+                    "timeout": 10000,
+                    "response": {
+                        "response": {
+                            "responseFormat": "text"
+                        }
+                    }
+                }
+            },
+            "id": "node_d2_buyhatke_http",
+            "name": "D2 — BuyHatke HTTP Request",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1980,
+                700
+            ],
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "operation": "extractHtmlContent",
+                "sourceData": "json",
+                "dataPropertyName": "data",
+                "extractionValues": {
+                    "values": [
+                        {
+                            "key": "product_titles",
+                            "cssSelector": ".product-title, h2.title, .title",
+                            "returnValue": "text",
+                            "returnArray": true
+                        },
+                        {
+                            "key": "store_names",
+                            "cssSelector": ".store-name, .seller-name, .merchant-name",
+                            "returnValue": "text",
+                            "returnArray": true
+                        },
+                        {
+                            "key": "prices",
+                            "cssSelector": ".price, .product-price, .selling-price",
+                            "returnValue": "text",
+                            "returnArray": true
+                        },
+                        {
+                            "key": "mrps",
+                            "cssSelector": ".mrp, .original-price, .strike",
+                            "returnValue": "text",
+                            "returnArray": true
+                        },
+                        {
+                            "key": "availabilities",
+                            "cssSelector": ".availability, .stock-status, .in-stock",
+                            "returnValue": "text",
+                            "returnArray": true
+                        },
+                        {
+                            "key": "links",
+                            "cssSelector": "a.product-link, .product-card a, .listing a",
+                            "returnValue": "attribute",
+                            "attribute": "href",
+                            "returnArray": true
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "node_d3_html_extract",
+            "name": "D3 — Extract BuyHatke Listings",
+            "type": "n8n-nodes-base.htmlExtract",
+            "typeVersion": 1,
+            "position": [
+                2220,
+                700
+            ],
+            "onError": "continueRegularOutput"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Zip the arrays into listing objects\nconst data = $input.first().json;\nconst product_titles = Array.isArray(data.product_titles) ? data.product_titles : [];\nconst store_names = Array.isArray(data.store_names) ? data.store_names : [];\nconst prices = Array.isArray(data.prices) ? data.prices : [];\nconst mrps = Array.isArray(data.mrps) ? data.mrps : [];\nconst availabilities = Array.isArray(data.availabilities) ? data.availabilities : [];\nconst links = Array.isArray(data.links) ? data.links : [];\n\nconst len = Math.max(store_names.length, prices.length, product_titles.length);\n\nif (len === 0) {\n  return [{\n    json: {\n      error: 'empty_results',\n      reply: \"I couldn't find comparison data for that product right now. Try a slightly different product name?\",\n      session_id: $('D1 — Guard Check').first().json.session_id,\n      session: $('D1 — Guard Check').first().json.session\n    }\n  }];\n}\n\nconst listings = [];\nfor (let i = 0; i < len; i++) {\n  listings.push({\n    product_name: product_titles[i] || null,\n    store: store_names[i] || null,\n    price: prices[i] || null,\n    mrp: mrps[i] || null,\n    availability: availabilities[i] || null,\n    link: links[i] ? `https://buyhatke.com${links[i].startsWith('/') ? links[i] : '/' + links[i]}` : null\n  });\n}\n\nreturn [{\n  json: {\n    listings,\n    product_name: $('D1 — Guard Check').first().json.product_name,\n    session_id: $('D1 — Guard Check').first().json.session_id,\n    session: $('D1 — Guard Check').first().json.session\n  }\n}];"
+            },
+            "id": "node_d3b_zip_listings",
+            "name": "D3b — Zip Listings",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2460,
+                700
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "You are a shopping assistant. Build a clean markdown comparison table from the listing data.\n\nColumns: Store | Price | MRP | Discount | Availability | Link\n\nRules:\n- Calculate Discount % as: ((MRP - Price) / MRP * 100) rounded to nearest integer. Show only if MRP is present.\n- Strip currency symbols before calculation; treat '—' or null as missing.\n- If a field is missing show — in that cell.\n- Sort rows by Price ascending (cheapest first).\n- Add a **Best Deal** row at the bottom in bold highlighting the cheapest available option.\n- After the table, write one short helpful sentence recommending the best option.\n- Return only markdown — no preamble, no JSON, no code fences."
+                        },
+                        {
+                            "role": "user",
+                            "content": "Product: {{ $json.product_name }}\n\nListings:\n{{ JSON.stringify($json.listings, null, 2) }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 1500,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_d4_table_claude",
+            "name": "D4 — Claude Build Comparison Table",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                2700,
+                700
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const reply = $input.first().json.text || $input.first().json.content || '';\nconst ctx = $('D3b — Zip Listings').first().json;\nconst session = { ...ctx.session };\n\nsession.history = Array.isArray(session.history) ? session.history : [];\nsession.history.push({ role: 'user', content: 'Approved — build comparison table' });\nsession.history.push({ role: 'assistant', content: reply });\n\nreturn [{\n  json: { session_id: ctx.session_id, session, reply }\n}];"
+            },
+            "id": "node_d5_session_update",
+            "name": "D5 — Session Update (Branch D)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2940,
+                700
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "UPDATE sessions SET history = '{{ JSON.stringify($json.session.history) }}'::jsonb, updated_at = NOW() WHERE session_id = '{{ $json.session_id }}'",
+                "options": {}
+            },
+            "id": "node_d5_db_save",
+            "name": "D5 — DB Save (Branch D)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                3180,
+                700
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "supabase_postgres_cred",
+                    "name": "Supabase Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $('D5 — Session Update (Branch D)').first().json.reply }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_d6_respond",
+            "name": "D6 — Respond (Branch D)",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                3420,
+                700
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "The user said no or cancelled the current request. Respond naturally and warmly. Ask if they'd like to search for a different product or need help with something else. Keep it brief. Return only the message string."
+                        },
+                        {
+                            "role": "user",
+                            "content": "User message: {{ $json.message }}\nProduct they were looking at: {{ $json.session.product_name || 'none' }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 200,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_e1_rejection_claude",
+            "name": "E1 — Claude Rejection Response",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                1500,
+                800
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const reply = $input.first().json.text || $input.first().json.content || '';\nconst ctx = $('Parse Intent JSON').first().json;\nconst session = { ...ctx.session };\n\nsession.phase = 1;\nsession.product_name = null;\nsession.history = Array.isArray(session.history) ? session.history : [];\nsession.history.push({ role: 'user', content: ctx.message });\nsession.history.push({ role: 'assistant', content: reply });\n\nreturn [{\n  json: { session_id: ctx.session_id, session, reply }\n}];"
+            },
+            "id": "node_e2_session_update",
+            "name": "E2 — Session Update (Branch E)",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1740,
+                800
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "UPDATE sessions SET phase = 1, product_name = NULL, history = '{{ JSON.stringify($json.session.history) }}'::jsonb, updated_at = NOW() WHERE session_id = '{{ $json.session_id }}'",
+                "options": {}
+            },
+            "id": "node_e2_db_save",
+            "name": "E2 — DB Save (Branch E)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.5,
+            "position": [
+                1980,
+                800
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "supabase_postgres_cred",
+                    "name": "Supabase Postgres"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $('E2 — Session Update (Branch E)').first().json.reply }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_e3_respond",
+            "name": "E3 — Respond (Branch E)",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                2220,
+                800
+            ]
+        },
+        {
+            "parameters": {
+                "model": "claude-opus-4-5",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "You are a shopping assistant. The user's message doesn't fit the expected flow. Respond helpfully. Guide them to either search for a product by name or describe a budget/category to discover options. Keep it short and friendly. Return only the message string."
+                        },
+                        {
+                            "role": "user",
+                            "content": "User message: {{ $json.message }}\nSession phase: {{ $json.session.phase }}\nCurrent product: {{ $json.session.product_name || 'none' }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.3,
+                    "maxTokens": 200,
+                    "timeout": 10000
+                }
+            },
+            "id": "node_f1_fallback_claude",
+            "name": "F1 — Claude Fallback",
+            "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+            "typeVersion": 1.3,
+            "position": [
+                1500,
+                1000
+            ],
+            "credentials": {
+                "anthropicApi": {
+                    "id": "anthropic_cred",
+                    "name": "Anthropic API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $input.first().json.text || $input.first().json.content || 'I can help you find and compare products. What are you looking for?' }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_f2_respond",
+            "name": "F2 — Respond (Branch F)",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                1740,
+                1000
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Error handler for HTTP failures or empty HTML\nconst error = $input.first().json.error || {};\nreturn [{\n  json: {\n    reply: \"I had trouble reaching that site right now. Want me to try again?\"\n  }\n}];"
+            },
+            "id": "node_error_http",
+            "name": "HTTP Error Handler",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1500,
+                1200
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={ \"reply\": \"{{ $json.reply }}\" }",
+                "options": {
+                    "responseCode": 200
+                }
+            },
+            "id": "node_error_respond",
+            "name": "Error Respond",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1.1,
+            "position": [
+                1740,
+                1200
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook Entry": {
+            "main": [
+                [
+                    {
+                        "node": "Load Session (Supabase)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Load Session (Supabase)": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Session State",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Session State": {
+            "main": [
+                [
+                    {
+                        "node": "Claude Intent Classifier",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Claude Intent Classifier": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Intent JSON",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Intent JSON": {
+            "main": [
+                [
+                    {
+                        "node": "Intent Router",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Intent Router": {
+            "main": [
+                [
+                    {
+                        "node": "A1 — Flipkart HTTP Request",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "B1 — Claude Extract Selection",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "C1 — Claude Confirm (Branch C)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "D1 — Guard Check",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "E1 — Claude Rejection Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "F1 — Claude Fallback",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "A1 — Flipkart HTTP Request": {
+            "main": [
+                [
+                    {
+                        "node": "A2 — Extract Product Names",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ],
+            "error": [
+                [
+                    {
+                        "node": "HTTP Error Handler",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "A2 — Extract Product Names": {
+            "main": [
+                [
+                    {
+                        "node": "A2b — Merge & Deduplicate Products",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "A2b — Merge & Deduplicate Products": {
+            "main": [
+                [
+                    {
+                        "node": "A3 — Claude Format Product List",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "A3 — Claude Format Product List": {
+            "main": [
+                [
+                    {
+                        "node": "A4 — Session Update (Branch A)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "A4 — Session Update (Branch A)": {
+            "main": [
+                [
+                    {
+                        "node": "A4 — DB Save (Branch A)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "A4 — DB Save (Branch A)": {
+            "main": [
+                [
+                    {
+                        "node": "A5 — Respond (Branch A)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "B1 — Claude Extract Selection": {
+            "main": [
+                [
+                    {
+                        "node": "B1b — Parse Selection",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "B1b — Parse Selection": {
+            "main": [
+                [
+                    {
+                        "node": "B2 — Claude Confirm (Branch B)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "B2 — Claude Confirm (Branch B)": {
+            "main": [
+                [
+                    {
+                        "node": "B3 — Session Update (Branch B)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "B3 — Session Update (Branch B)": {
+            "main": [
+                [
+                    {
+                        "node": "B3 — DB Save (Branch B)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "B3 — DB Save (Branch B)": {
+            "main": [
+                [
+                    {
+                        "node": "B4 — Respond (Branch B)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "C1 — Claude Confirm (Branch C)": {
+            "main": [
+                [
+                    {
+                        "node": "C2 — Session Update (Branch C)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "C2 — Session Update (Branch C)": {
+            "main": [
+                [
+                    {
+                        "node": "C2 — DB Save (Branch C)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "C2 — DB Save (Branch C)": {
+            "main": [
+                [
+                    {
+                        "node": "C3 — Respond (Branch C)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D1 — Guard Check": {
+            "main": [
+                [
+                    {
+                        "node": "D1b — Guard Failed?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D1b — Guard Failed?": {
+            "main": [
+                [
+                    {
+                        "node": "D1c — Save Guard Reply",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "D2 — BuyHatke HTTP Request",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D1c — Save Guard Reply": {
+            "main": [
+                [
+                    {
+                        "node": "D1d — Guard Respond",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D2 — BuyHatke HTTP Request": {
+            "main": [
+                [
+                    {
+                        "node": "D3 — Extract BuyHatke Listings",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ],
+            "error": [
+                [
+                    {
+                        "node": "HTTP Error Handler",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D3 — Extract BuyHatke Listings": {
+            "main": [
+                [
+                    {
+                        "node": "D3b — Zip Listings",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D3b — Zip Listings": {
+            "main": [
+                [
+                    {
+                        "node": "D4 — Claude Build Comparison Table",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D4 — Claude Build Comparison Table": {
+            "main": [
+                [
+                    {
+                        "node": "D5 — Session Update (Branch D)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D5 — Session Update (Branch D)": {
+            "main": [
+                [
+                    {
+                        "node": "D5 — DB Save (Branch D)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "D5 — DB Save (Branch D)": {
+            "main": [
+                [
+                    {
+                        "node": "D6 — Respond (Branch D)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "E1 — Claude Rejection Response": {
+            "main": [
+                [
+                    {
+                        "node": "E2 — Session Update (Branch E)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "E2 — Session Update (Branch E)": {
+            "main": [
+                [
+                    {
+                        "node": "E2 — DB Save (Branch E)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "E2 — DB Save (Branch E)": {
+            "main": [
+                [
+                    {
+                        "node": "E3 — Respond (Branch E)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "F1 — Claude Fallback": {
+            "main": [
+                [
+                    {
+                        "node": "F2 — Respond (Branch F)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "HTTP Error Handler": {
+            "main": [
+                [
+                    {
+                        "node": "Error Respond",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "settings": {
+        "executionOrder": "v1",
+        "saveManualExecutions": true,
+        "callerPolicy": "workflowsFromSameOwner",
+        "errorWorkflow": ""
+    },
+    "staticData": null,
+    "tags": [
+        "shopping",
+        "ai-assistant",
+        "conversational"
+    ],
+    "triggerCount": 1,
+    "updatedAt": "2025-01-01T00:00:00.000Z",
+    "versionId": "1"
+}
